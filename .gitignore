@@ -1,220 +1,153 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[codz]
-*$py.class
+"""
+Sistema de registro de atenciones - Posta San Carlos (prototipo)
+Versión de un solo archivo para Google Colab o cualquier entorno Python.
+"""
+import csv
+import os
+from datetime import datetime
 
-# C extensions
-*.so
+ARCHIVO = "atenciones.csv"
+CAMPOS = ["fecha", "hora", "dni", "nombre", "edad", "motivo"]
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
 
-# PyInstaller
-#   Usually these files are written by a python script from a template
-#   before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
+# ---------------- VALIDACIONES ----------------
+def validar_dni(dni: str) -> bool:
+    """El DNI peruano tiene 8 dígitos numéricos."""
+    return dni.isdigit() and len(dni) == 8
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
 
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py.cover
-*.lcov
-.hypothesis/
-.pytest_cache/
-cover/
+def validar_nombre(nombre: str) -> bool:
+    """Al menos 3 caracteres, solo letras y espacios."""
+    limpio = nombre.strip()
+    return len(limpio) >= 3 and all(c.isalpha() or c.isspace() for c in limpio)
 
-# Translations
-*.mo
-*.pot
 
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
+def validar_edad(texto: str) -> bool:
+    """Entero entre 0 y 120."""
+    return texto.isdigit() and 0 <= int(texto) <= 120
 
-# Flask stuff:
-instance/
-.webassets-cache
 
-# Scrapy stuff:
-.scrapy
+def validar_motivo(texto: str) -> bool:
+    return len(texto.strip()) >= 3
 
-# Sphinx documentation
-docs/_build/
 
-# PyBuilder
-.pybuilder/
-target/
+# ---------------- ALMACENAMIENTO (CSV) ----------------
+def guardar_atencion(dni, nombre, edad, motivo, archivo=ARCHIVO, fecha=None, hora=None):
+    """Agrega una atención al CSV. Si no se indica fecha/hora, usa las actuales."""
+    existe = os.path.exists(archivo)
+    ahora = datetime.now()
+    with open(archivo, "a", newline="", encoding="utf-8") as f:
+        escritor = csv.DictWriter(f, fieldnames=CAMPOS)
+        if not existe:
+            escritor.writeheader()
+        escritor.writerow({
+            "fecha": fecha or ahora.strftime("%Y-%m-%d"),
+            "hora": hora or ahora.strftime("%H:%M"),
+            "dni": dni,
+            "nombre": nombre.strip().title(),
+            "edad": int(edad),
+            "motivo": motivo.strip().lower(),
+        })
 
-# Jupyter Notebook
-.ipynb_checkpoints
 
-# IPython
-profile_default/
-ipython_config.py
+def cargar_atenciones(archivo=ARCHIVO):
+    """Devuelve la lista de atenciones (lista de diccionarios)."""
+    if not os.path.exists(archivo):
+        return []
+    with open(archivo, newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
 
-# pyenv
-#   For a library or package, you might want to ignore these files since the code is
-#   intended to run in multiple environments; otherwise, check them in:
-# .python-version
 
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-# Pipfile.lock
+def buscar_por_dni(dni, archivo=ARCHIVO):
+    return [a for a in cargar_atenciones(archivo) if a["dni"] == dni]
 
-# uv
-#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-# uv.lock
 
-# poetry
-#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
-# poetry.lock
-# poetry.toml
+# ---------------- REPORTES ----------------
+def contar_por_campo(campo, archivo=ARCHIVO):
+    """Cuenta atenciones agrupadas por un campo (fecha, motivo, ...)."""
+    conteo = {}
+    for atencion in cargar_atenciones(archivo):
+        clave = atencion[campo]
+        conteo[clave] = conteo.get(clave, 0) + 1
+    return conteo
 
-# pdm
-#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
-#   pdm recommends including project-wide configuration in pdm.toml, but excluding .pdm-python.
-#   https://pdm-project.org/en/latest/usage/project/#working-with-version-control
-# pdm.lock
-# pdm.toml
-.pdm-python
-.pdm-build/
 
-# pixi
-#   Similar to Pipfile.lock, it is generally recommended to include pixi.lock in version control.
-# pixi.lock
-#   Pixi creates a virtual environment in the .pixi directory, just like venv module creates one
-#   in the .venv directory. It is recommended not to include this directory in version control.
-.pixi/*
-!.pixi/config.toml
+def imprimir_reporte(titulo, conteo):
+    print(f"\n=== {titulo} ===")
+    if not conteo:
+        print("Sin datos registrados.")
+        return
+    for clave, cantidad in sorted(conteo.items(), key=lambda x: -x[1]):
+        print(f"{clave:<25} {cantidad}")
+    print(f"{'TOTAL':<25} {sum(conteo.values())}")
 
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
-__pypackages__/
 
-# Celery stuff
-celerybeat-schedule*
-celerybeat.pid
+# ---------------- INTERFAZ DE CONSOLA ----------------
+def pedir_dato(mensaje, validador, error):
+    """Repite la pregunta hasta que el dato sea válido."""
+    while True:
+        valor = input(mensaje).strip()
+        if validador(valor):
+            return valor
+        print(f"  ! {error}")
 
-# Redis
-*.rdb
-*.aof
-*.pid
 
-# RabbitMQ
-mnesia/
-rabbitmq/
-rabbitmq-data/
+def registrar():
+    dni = pedir_dato("DNI (8 dígitos): ", validar_dni, "DNI inválido.")
+    nombre = pedir_dato("Nombre completo: ", validar_nombre, "Nombre inválido.")
+    edad = pedir_dato("Edad: ", validar_edad, "Edad inválida (0-120).")
+    motivo = pedir_dato("Motivo de atención: ", validar_motivo, "Escribe un motivo.")
+    guardar_atencion(dni, nombre, edad, motivo)
+    print("  Atención registrada correctamente.")
 
-# ActiveMQ
-activemq-data/
 
-# SageMath parsed files
-*.sage.py
+def buscar():
+    dni = pedir_dato("DNI a buscar: ", validar_dni, "DNI inválido.")
+    resultados = buscar_por_dni(dni)
+    if not resultados:
+        print("  No se encontraron atenciones.")
+    for a in resultados:
+        print(f"  {a['fecha']} {a['hora']} | {a['nombre']} | {a['edad']} años | {a['motivo']}")
 
-# Environments
-.env
-.envrc
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
 
-# Spyder project settings
-.spyderproject
-.spyproject
+def cargar_datos_ejemplo():
+    """Carga atenciones FICTICIAS para probar los reportes."""
+    ejemplos = [
+        ("11111111", "Persona Uno", 34, "control prenatal"),
+        ("22222222", "Persona Dos", 8, "vacunación"),
+        ("33333333", "Persona Tres", 52, "consulta general"),
+        ("44444444", "Persona Cuatro", 5, "vacunación"),
+        ("55555555", "Persona Cinco", 27, "consulta general"),
+    ]
+    for dni, nombre, edad, motivo in ejemplos:
+        guardar_atencion(dni, nombre, edad, motivo)
+    print("  Se cargaron 5 atenciones ficticias de ejemplo.")
 
-# Rope project settings
-.ropeproject
 
-# mkdocs/Zensical documentation
-/site
+def menu():
+    opciones = {
+        "1": ("Registrar atención", registrar),
+        "2": ("Buscar por DNI", buscar),
+        "3": ("Reporte por día",
+              lambda: imprimir_reporte("Atenciones por día", contar_por_campo("fecha"))),
+        "4": ("Reporte por motivo",
+              lambda: imprimir_reporte("Atenciones por motivo", contar_por_campo("motivo"))),
+        "5": ("Cargar datos de ejemplo (ficticios)", cargar_datos_ejemplo),
+        "0": ("Salir", None),
+    }
+    while True:
+        print("\n--- POSTA SAN CARLOS ---")
+        for clave, (texto, _) in opciones.items():
+            print(f"{clave}. {texto}")
+        eleccion = input("Elige una opción: ").strip()
+        if eleccion == "0":
+            print("Hasta luego.")
+            break
+        if eleccion in opciones:
+            opciones[eleccion][1]()
+        else:
+            print("  Opción no válida.")
 
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
 
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# PyCharm
-#   JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#   and can be added to the global gitignore or merged into this file.  For a more nuclear
-#   option (not recommended) you can uncomment the following to ignore the entire idea folder.
-# .idea/
-
-# Abstra
-#   Abstra is an AI-powered process automation framework.
-#   Ignore directories containing user credentials, local state, and settings.
-#   Learn more at https://abstra.io/docs
-.abstra/
-
-# Visual Studio Code
-#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore that
-#   can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#   and can be added to the global gitignore or merged into this file. However, if you prefer, you
-#   could uncomment the following to ignore the entire vscode folder
-# .vscode/
-# Temporary file for partial code execution
-tempCodeRunnerFile.py
-
-# Ruff stuff:
-.ruff_cache/
-
-# PyPI configuration file
-.pypirc
-
-# Marimo
-marimo/_static/
-marimo/_lsp/
-__marimo__/
-
-# Streamlit
-.streamlit/secrets.toml
+if __name__ == "__main__":
+    menu()
